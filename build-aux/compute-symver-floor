@@ -1,0 +1,93 @@
+#! /usr/bin/perl
+# Written by Zack Weinberg <zackw at panix.com> in 2017 and 2020.
+# To the extent possible under law, Zack Weinberg has waived all
+# copyright and related or neighboring rights to this work.
+#
+# See https://creativecommons.org/publicdomain/zero/1.0/ for further
+# details.
+
+# Process libcrypt.minver and determine the minumum symbol version to
+# use for compatibility symbols.  Called from configure.ac.
+
+use v5.14;  # implicit use strict, use feature ':5.14'
+use warnings FATAL => 'all';
+use utf8;
+use open qw(:std :utf8);
+no  if $] >= 5.022, warnings => 'experimental::re_strict';
+use if $] >= 5.022, re => 'strict';
+
+sub preprocessor_check {
+    state $CC = $ENV{CC} // 'cc';
+    state $CFLAGS = $ENV{CFLAGS} // '';
+    my ($expr) = @_;
+
+    # We're going through the shell here because both $CC and $CFLAGS
+    # must be honored and they might contain multiple shell words,
+    # including quoted words.
+    # FIXME: We assume the compiler understands "-fsyntax-only -xc -"
+    # to mean "read standard input, interpret as C, check for errors,
+    # produce no output."  This is true for all commonly used C
+    # compilers on operating systems where this feature is necessary.
+    print STDERR "$0: testing $expr\n";
+    print STDERR "$0: $CC $CFLAGS -fsyntax-only -xc -\n";
+    open my $ccpipe, "| $CC $CFLAGS -fsyntax-only -xc -"
+        or die "$CC: $!\n";
+    print $ccpipe
+"#include <limits.h>
+#if !($expr)
+#error nope
+#endif
+int avoid_empty_translation_unit;
+";
+    if (close $ccpipe) {
+        return 1;
+    } elsif ($! == 0) {
+        return 0; # compilation failed
+    } else {
+        die "$CC: $!\n";
+    }
+}
+
+sub parse_minver_file {
+    my ($minver_file, $system, $cpu) = @_;
+    $system = lc $system;
+    $cpu = lc $cpu;
+
+    local $_;
+    open my $fh, '<', $minver_file
+        or die "$minver_file: $!\n";
+    while (<$fh>) {
+        next if /^#/;
+        chomp;
+        s/\s+$//;
+        next if /^$/;
+
+        my ($vers, $vsys, $vcpu, $ppck) = split ' ', $_, 4;
+        $vsys = lc($vsys);
+        $vcpu = lc($vcpu);
+
+        return $vers
+            if ($system =~ /\A$vsys/ && $cpu =~ /\A$vcpu/
+                && (!defined $ppck || preprocessor_check($ppck)));
+    }
+    print STDERR "$0: no match for ${cpu}-${system}\n";
+    return 'ERROR';
+}
+
+#
+# Main
+#
+if (scalar(@ARGV) != 3) {
+    print STDERR "usage: $0 libcrypt.minver host-os host-cpu\n";
+    print STDERR "Environment variables \$CC and \$CFLAGS are honored.\n";
+    exit 2;
+}
+eval {
+    print parse_minver_file(@ARGV), "\n";
+    close STDOUT or die "write error: $!\n";
+};
+if ($@) {
+    print STDERR "compute-symver-floor: $@";
+    exit 1;
+}
+exit 0;

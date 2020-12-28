@@ -1,5 +1,4 @@
-# Generation of crypt.h from crypt.h.in and config.h.
-#
+#! /usr/bin/perl
 # Written by Zack Weinberg <zackw at panix.com> in 2017.
 # To the extent possible under law, Zack Weinberg has waived all
 # copyright and related or neighboring rights to this work.
@@ -7,56 +6,128 @@
 # See https://creativecommons.org/publicdomain/zero/1.0/ for further
 # details.
 
-BEGIN {
-    HAVE_SYS_CDEFS_H = 0
-    HAVE_SYS_CDEFS_BEGIN_END_DECLS = 0
-    HAVE_SYS_CDEFS_THROW = 0
-}
-END {
-    if (!HAVE_SYS_CDEFS_H &&
-        (HAVE_SYS_CDEFS_BEGIN_END_DECLS ||
-         HAVE_SYS_CDEFS_THROW)) {
-        print "config.h is inconsistent" > "/dev/stderr"
-        close("/dev/stderr")
-        exit 1
-    }
-}
-FILENAME ~ /config\.h$/ {
-    if ($0 ~ /^#define HAVE_SYS_CDEFS_H 1$/) {
-        HAVE_SYS_CDEFS_H = 1
-    } else if ($0 ~ /^#define HAVE_SYS_CDEFS_BEGIN_END_DECLS 1$/) {
-        HAVE_SYS_CDEFS_BEGIN_END_DECLS = 1
-    } else if ($0 ~ /^#define HAVE_SYS_CDEFS_THROW 1$/) {
-        HAVE_SYS_CDEFS_THROW = 1
-    }
-}
-FILENAME !~ /config\.h$/ {
-    if ($0 ~ /^\/\*HEADER\*\/$/) {
-        if (HAVE_SYS_CDEFS_H) {
-            print "#include <sys/cdefs.h>"
-        }
-        if (!HAVE_SYS_CDEFS_THROW) {
-            print "#define __THROW /* nothing */"
-        }
-        print ""
-        if (HAVE_SYS_CDEFS_BEGIN_END_DECLS) {
-            print "__BEGIN_DECLS"
-        } else {
-            print "#ifdef __cplusplus"
-            print "extern \"C\" {"
-            print "#endif"
-        }
+# Generate (x)crypt.h from (x)crypt.h.in.
 
-    } else if ($0 ~ /^\/\*TRAILER\*\/$/) {
-        if (HAVE_SYS_CDEFS_BEGIN_END_DECLS) {
-            print "__END_DECLS"
-        } else {
-            print "#ifdef __cplusplus"
-            print "} /* extern \"C\" */"
-            print "#endif"
-        }
+use v5.14;  # implicit use strict, use feature ':5.14'
+use warnings FATAL => 'all';
+use utf8;
+use open qw(:std :utf8);
+no  if $] >= 5.022, warnings => 'experimental::re_strict';
+use if $] >= 5.022, re => 'strict';
 
+sub process_config_h {
+    my ($substs, $config_h) = @_;
+    open my $fh, '<', $config_h
+        or die "$config_h: $!\n";
+
+    my $have_sys_cdefs_h = 0;
+    my $have_sys_cdefs_begin_end_decls = 0;
+    my $have_sys_cdefs_throw = 0;
+    local $_;
+    while (<$fh>) {
+        if (/^#define HAVE_SYS_CDEFS_H 1$/) {
+            $have_sys_cdefs_h = 1;
+        } elsif (/^#define HAVE_SYS_CDEFS_BEGIN_END_DECLS 1$/) {
+            $have_sys_cdefs_begin_end_decls = 1;
+        } elsif (/^#define HAVE_SYS_CDEFS_THROW 1$/) {
+            $have_sys_cdefs_throw = 1;
+        } elsif (/^#define PACKAGE_VERSION "((\d+)\.(\d+)\.\d+)"$/) {
+            $substs->{XCRYPT_VERSION_STR}   = $1;
+            $substs->{XCRYPT_VERSION_MAJOR} = $2;
+            $substs->{XCRYPT_VERSION_MINOR} = $3;
+        }
+    }
+
+    die "$config_h: error: inconsistent <sys/cdefs.h> settings\n"
+        if (!$have_sys_cdefs_h
+            && ($have_sys_cdefs_begin_end_decls || $have_sys_cdefs_throw));
+
+    my $b = "";
+    my $e = "";
+    $b .= "#include <sys/cdefs.h>\n" if $have_sys_cdefs_h;
+    $b .= "#define __THROW /* nothing */\n" unless $have_sys_cdefs_throw;
+    $b .= "\n";
+    if ($have_sys_cdefs_begin_end_decls) {
+        $b .= "__BEGIN_DECLS";
+        $e .= "__END_DECLS";
     } else {
+        $b .= "#ifdef __cplusplus\nextern \"C\" {\n#endif";
+        $e .= "#ifdef __cplusplus\n} /* extern \"C\" */\n#endif";
+    }
+    $substs->{BEGIN_DECLS} = $b;
+    $substs->{END_DECLS} = $e;
+}
+
+sub process_hashes_conf {
+    my ($substs, $hashes_conf, $hashes_enabled) = @_;
+    my %enabled;
+    for my $h (split /,/, $hashes_enabled) {
+        $enabled{$h} = 1 unless $h eq '';
+    }
+
+    open my $fh, '<', $hashes_conf
+        or die "$hashes_conf: $!\n";
+    my $default_prefix_enabled = 0;
+    local $_;
+    LINE: while (<$fh>) {
+        next if /^#/;
+        chomp;
+        s/\s+$//;
+        next if /^$/;
+
+        my ($name, undef, undef, $flags) = split;
+        next unless exists $enabled{$name};
+        for my $f (split /,/, $flags) {
+            if ($f eq 'DEFAULT') {
+                $default_prefix_enabled = 1;
+                last LINE;
+            }
+        }
+    }
+    $substs->{DEFAULT_PREFIX_ENABLED} = $default_prefix_enabled;
+}
+
+sub substitute {
+    my ($substs, $infile) = @_;
+    open my $fh, '<', $infile
+        or die "$infile: $!\n";
+    my $error = 0;
+    local $_;
+    my $subst1 = sub {
+        my $rep = $substs->{$_[0]};
+        return $rep if defined $rep;
+
+        print STDERR "$infile:$.: error: no substitution for $_[0]\n";
+        $error = 1;
+        return "!$_[0]!";
+    };
+    while (<$fh>) {
+        s/@([A-Z0-9_]+)@/&$subst1($1)/eg;
         print;
     }
+    exit 1 if $error;
 }
+
+#
+# Main
+#
+my $ME = $0; $ME =~ s:^.+?/([^/]+)$:$1:;
+if (scalar(@ARGV) != 2 && scalar(@ARGV) != 4) {
+    print STDERR
+        "usage: $ME template config.h [hashes.conf ,hashes,enabled,]\n";
+    exit 1;
+}
+eval {
+    my $infile = shift @ARGV;
+    my %substs;
+
+    process_config_h(\%substs, shift @ARGV);
+    process_hashes_conf(\%substs, @ARGV) if @ARGV;
+    substitute(\%substs, $infile);
+    close STDOUT or die "write error: $!\n";
+};
+if ($@) {
+    print STDERR "$ME: $@";
+    exit 1;
+}
+exit 0;
