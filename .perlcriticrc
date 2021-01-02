@@ -1,0 +1,72 @@
+# Perl::Critic configuration.  -*- conf-mode -*-
+
+# we turn on all of the policies at theme level, and then
+# we turn off one-by-one the ones I don't like below.
+severity = 1
+theme =
+
+# compilation-mode--compatible diagnostic formatting
+verbose = %f:%l:%c: warning: %m (%p; %e)\n
+
+### Tuning
+
+[CodeLayout::RequireTidyCode]
+perltidyrc = .perltidyrc
+
+[InputOutput::RequireCheckedSyscalls]
+# check everything except print
+functions = :builtins
+exclude_functions = print
+
+[Subroutines::RequireFinalReturn]
+# noreturn subs from TestCommon.pm
+terminal_funcs = fail skip error invocation_error subprocess_error
+
+[ValuesAndExpressions::ProhibitMagicNumbers]
+# all of these numbers have been considered in context;
+# giving them names would not clarify the code
+allowed_values = -1 0 1 2 8 77 99 127 255 256 512
+allowed_types = Hex
+
+### Disabled policies
+
+# Version strings were only problematic in versions of Perl older than
+# our minimum.
+[-ValuesAndExpressions::ProhibitVersionStrings]
+
+# The rationale for prohibiting boolean 'grep' is sensible
+# (it doesn't short-circuit, which could be a huge waste of time)
+# but the recommended alternative is 'any' from List::MoreUtils,
+# which would be the only CPAN dependency we had.
+[-BuiltinFunctions::ProhibitBooleanGrep]
+
+# The "complex" subroutines and regexes are not that bad and splitting
+# them up would only obscure the logic.
+[-Subroutines::ProhibitExcessComplexity]
+[-RegularExpressions::ProhibitComplexRegexes]
+
+# I can't find any explanation of what qualifies as "brief" and the
+# diagnostic triggers on perfectly sensible code.
+[-InputOutput::RequireBriefOpen]
+
+# I'd *like* to disable this *only* for $_, where the whole point is
+# that it gets written to (and read from) implicitly, but that's not
+# possible.
+[-Variables::RequireInitializationForLocalVars]
+
+# These rules only make sense for large libraries with lots
+# of consumers.
+[-ErrorHandling::RequireCarping]
+[-Modules::RequireVersionVar]
+
+# Style rules I don't agree with.
+[-ControlStructures::ProhibitPostfixControls]
+[-NamingConventions::Capitalization]
+[-RegularExpressions::ProhibitEnumeratedClasses]
+[-RegularExpressions::ProhibitEscapedMetacharacters]
+[-RegularExpressions::RequireDotMatchAnything]
+[-RegularExpressions::RequireExtendedFormatting]
+[-RegularExpressions::RequireLineBoundaryMatching]
+[-ValuesAndExpressions::ProhibitNoisyQuotes]
+[-Variables::ProhibitPunctuationVars]
+
