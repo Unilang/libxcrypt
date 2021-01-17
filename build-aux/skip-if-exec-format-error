@@ -9,13 +9,14 @@
 # See https://creativecommons.org/publicdomain/zero/1.0/ for further
 # details.
 
-use v5.14;  # implicit use strict; use feature ':5.14';
+use v5.14;    # implicit use strict; use feature ':5.14';
 use warnings FATAL => 'all';
 use utf8;
 use open qw(:std :utf8);
 no  if $] >= 5.022, warnings => 'experimental::re_strict';
-use if $] >= 5.022, re => 'strict';
+use if $] >= 5.022, re       => 'strict';
 
+use FindBin;
 use IPC::Open3;
 use Symbol 'gensym';
 
@@ -38,39 +39,38 @@ use Symbol 'gensym';
 # error message when this happens.  This is the same thing the old
 # shell-based implementation did, so we can live with it.
 
-eval {
-    my $child_err = gensym;
-    my $pid = open3('<&STDIN', '>&STDOUT', $child_err, @ARGV);
+my $status = eval {
+    my $child_err   = gensym;
+    my $pid         = open3('<&STDIN', '>&STDOUT', $child_err, @ARGV);
     my $saw_enoexec = 0;
 
     local $_;
     while (<$child_err>) {
         $saw_enoexec = 1
-            if m/\b(?:
+            if m{\b(?:
                    [Ex]ec \s+ format \s+ error
                  | cannot \s+ execute \s+ (?:ELF \s+)? binary
-               )\b/x;
-        print STDERR $_;
+               )\b}x;
+        print {*STDERR} $_;
     }
     close $child_err or die "read error: $!\n";
-    waitpid($pid, 0) or die "waitpid: $!\n";
+    waitpid $pid, 0 or die "waitpid: $!\n";
 
     if (my $sig = ($? & 0x7F)) {
         # Without CPAN modules, there's no way to get at strsignal.
-        print STDERR "$ARGV[0]: killed by signal $sig\n";
-        exit 99;
+        print {*STDERR} "$ARGV[0]: killed by signal $sig\n";
+        return 99;
     } else {
-        exit 77 if $saw_enoexec;
-        exit $? >> 8;
+        return 77 if $saw_enoexec;
+        return $? >> 8;
     }
 };
-if ($@) {
-    my $err = $@;
-    $err =~ s/\s+ at \s+ \S+ \s+ line \s+ \d+ \.? \n? \Z//x;
-    $err =~ s/^open3: //;
+exit $status if defined $status;
 
-    no warnings 'once';
-    require FindBin;
-    print STDERR "${FindBin::Script}: $err\n";
-    exit (($err =~ /\bExec format error\b/) ? 77 : 99);
-}
+# We only get here if there was an error.
+my $err = $@;
+$err =~ s/\s+ at \s+ \S+ \s+ line \s+ \d+ \.? \n? \Z//x;
+$err =~ s/^open3: //;
+
+print {*STDERR} "${FindBin::Script}: $err\n";
+exit(($err =~ /\bExec format error\b/) ? 77 : 99);
