@@ -9,49 +9,67 @@
 # Process libcrypt.minver and determine the minumum symbol version to
 # use for compatibility symbols.  Called from configure.ac.
 
-use v5.14;  # implicit use strict, use feature ':5.14'
+use v5.14;    # implicit use strict, use feature ':5.14'
 use warnings FATAL => 'all';
 use utf8;
 use open qw(:std :utf8);
 no  if $] >= 5.022, warnings => 'experimental::re_strict';
-use if $] >= 5.022, re => 'strict';
+use if $] >= 5.022, re       => 'strict';
+
+use FindBin;
+use lib "${FindBin::Bin}/../test";
+use TestCommon qw(
+    ensure_C_locale
+    sh_split
+    popen
+    subprocess_error
+    which
+);
 
 sub preprocessor_check {
-    state $CC = $ENV{CC} // 'cc';
-    state $CFLAGS = $ENV{CFLAGS} // '';
     my ($expr) = @_;
 
-    # We're going through the shell here because both $CC and $CFLAGS
-    # must be honored and they might contain multiple shell words,
-    # including quoted words.
+    state @CC;
+    state @CFLAGS;
+    if (!@CC) {
+        @CC = which($ENV{CC} // 'cc');
+        die "C compiler not available\n" unless @CC;
+
+        @CFLAGS = sh_split($ENV{CFLAGS} // q{});
+
+        # We call ensure_C_locale here, not from the main section,
+        # because this sub might not get called at all, in which
+        # case it would be unnecessary work.
+        ensure_C_locale();
+    }
+
     # FIXME: We assume the compiler understands "-fsyntax-only -xc -"
     # to mean "read standard input, interpret as C, check for errors,
     # produce no output."  This is true for all commonly used C
     # compilers on operating systems where this feature is necessary.
-    print STDERR "$0: testing $expr\n";
-    print STDERR "$0: $CC $CFLAGS -fsyntax-only -xc -\n";
-    open my $ccpipe, "| $CC $CFLAGS -fsyntax-only -xc -"
-        or die "$CC: $!\n";
-    print $ccpipe
-"#include <limits.h>
+    print {*STDERR} "${FindBin::Bin}: testing $expr\n";
+
+    my $ccpipe = popen('|-', @CC, @CFLAGS, '-fsyntax-only', '-xc', '-');
+    print {$ccpipe} <<"EOF";
+#include <limits.h>
 #if !($expr)
 #error nope
 #endif
 int avoid_empty_translation_unit;
-";
+EOF
     if (close $ccpipe) {
-        return 1;
-    } elsif ($! == 0) {
-        return 0; # compilation failed
+        return 1;    # compilation successful
+    } elsif ($! == 0 && ($? & 0x7F) == 0) {
+        return 0;    # compilation failed
     } else {
-        die "$CC: $!\n";
+        subprocess_error(@CC);
     }
 }
 
 sub parse_minver_file {
     my ($minver_file, $system, $cpu) = @_;
     $system = lc $system;
-    $cpu = lc $cpu;
+    $cpu    = lc $cpu;
 
     local $_;
     open my $fh, '<', $minver_file
@@ -60,17 +78,18 @@ sub parse_minver_file {
         next if /^#/;
         chomp;
         s/\s+$//;
-        next if /^$/;
+        next if $_ eq q{};
 
-        my ($vers, $vsys, $vcpu, $ppck) = split ' ', $_, 4;
-        $vsys = lc($vsys);
-        $vcpu = lc($vcpu);
+        my ($vers, $vsys, $vcpu, $ppck) = split q{ }, $_, 4;
+        $vsys = lc $vsys;
+        $vcpu = lc $vcpu;
 
         return $vers
-            if ($system =~ /\A$vsys/ && $cpu =~ /\A$vcpu/
-                && (!defined $ppck || preprocessor_check($ppck)));
+            if $system =~ /\A$vsys/
+            && $cpu =~ /\A$vcpu/
+            && (!defined $ppck || preprocessor_check($ppck));
     }
-    print STDERR "$0: no match for ${cpu}-${system}\n";
+    print {*STDERR} "$0: no match for ${cpu}-${system}\n";
     return 'ERROR';
 }
 
@@ -78,16 +97,16 @@ sub parse_minver_file {
 # Main
 #
 if (scalar(@ARGV) != 3) {
-    print STDERR "usage: $0 libcrypt.minver host-os host-cpu\n";
-    print STDERR "Environment variables \$CC and \$CFLAGS are honored.\n";
+    print {*STDERR} "usage: $0 libcrypt.minver host-os host-cpu\n";
+    print {*STDERR} "Environment variables \$CC and \$CFLAGS are honored.\n";
     exit 2;
 }
-eval {
+
+exit 0 if eval {
     print parse_minver_file(@ARGV), "\n";
     close STDOUT or die "write error: $!\n";
+    1;
 };
-if ($@) {
-    print STDERR "compute-symver-floor: $@";
-    exit 1;
-}
-exit 0;
+
+print {*STDERR} "${FindBin::Script}: $@";
+exit 1;

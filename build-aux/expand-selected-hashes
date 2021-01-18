@@ -14,52 +14,29 @@
 # Caution: if you change the format of lib/hashes.conf you will
 # probably need to modify gen-crypt-hashes-h as well as this script.
 
-use v5.14;  # implicit use strict, use feature ':5.14'
+use v5.14;    # implicit use strict, use feature ':5.14'
 use warnings FATAL => 'all';
 use utf8;
 use open qw(:std :utf8);
 no  if $] >= 5.022, warnings => 'experimental::re_strict';
-use if $] >= 5.022, re => 'strict';
+use if $] >= 5.022, re       => 'strict';
 
-# Get the list of all supported hashes and the membership of each hash
-# group.  Does not check for errors in hashes.conf; gen-crypt-hashes-h
-# handles that.
-sub read_hashes_conf {
-    my ($hashes_conf) = @_;
-    my %hashes;
-    my %groups;
-    local $_;
-
-    open my $fh, '<', $hashes_conf
-        or die "$hashes_conf: $!\n";
-    while (<$fh>) {
-        next if /^#/;
-        chomp;
-        s/\s+$//;
-        next if /^$/;
-
-        my ($h, undef, undef, $flags) = split;
-        $hashes{$h} = 1;
-        for my $flag (split /,/, $flags) {
-            $flag = lc $flag;
-            # 'default' is the only flag that isn't a selection group.
-            if ($flag ne 'default') {
-                $groups{$flag} = []  unless exists $groups{$flag};
-                push @{$groups{$flag}}, $h;
-            }
-        }
-    }
-    return \%hashes, \%groups;
-}
+use FindBin;
+use lib $FindBin::Bin;
+use BuildCommon qw(
+    parse_hashes_conf
+);
 
 sub expand_selected {
-    my ($hashes, $groups, $selected) = @_;
+    my ($hconf, $selected) = @_;
 
     if ($selected eq 'all') {
-        return keys %$hashes;
+        return keys %{$hconf->hashes};
     } else {
         my %enabled;
         my @errors;
+        my $hashes = $hconf->hashes;
+        my $groups = $hconf->groups;
         for my $w (split /,/, $selected) {
             if ($w eq 'all') {
                 push @errors, "'all' must be used alone\n";
@@ -67,13 +44,16 @@ sub expand_selected {
                 $enabled{$w} = 1;
             } elsif (exists $groups->{$w}) {
                 for my $h (@{$groups->{$w}}) {
-                    $enabled{$h} = 1;
+                    $enabled{$h->name} = 1;
                 }
             } else {
                 push @errors, "'$w' is not a hash or group name\n";
             }
         }
-        die join("", @errors) if @errors;
+        if (scalar(%enabled) == 0) {
+            push @errors, "no hashes are enabled\n";
+        }
+        die join q{}, @errors if @errors;
         return keys %enabled;
     }
 }
@@ -81,21 +61,20 @@ sub expand_selected {
 #
 # Main
 #
-my $ME = $0; $ME =~ s:^.+?/([^/]+)$:$1:;
 if (scalar(@ARGV) != 2) {
-    print STDERR "usage: $ME hashes.conf names,of,selected,hashes\n";
+    print {*STDERR}
+        "usage: ${FindBin::Script} hashes.conf names,of,selected,hashes\n";
     exit 1;
 }
-eval {
+exit 0 if eval {
     my ($hashes_conf, $hashes_selected) = @ARGV;
-    my ($hashes, $groups) = read_hashes_conf($hashes_conf);
-    my @enabled = expand_selected($hashes, $groups, $hashes_selected);
+    my $hconf   = parse_hashes_conf($hashes_conf);
+    my @enabled = expand_selected($hconf, $hashes_selected);
 
-    print ",", join(",", sort @enabled), ",\n";
+    print ',', (join ',', sort @enabled), ",\n";
     close STDOUT or die "write error: $!\n";
+    1;
 };
-if ($@) {
-    print STDERR "$ME: $@";
-    exit 1;
-}
-exit 0;
+
+print {*STDERR} "${FindBin::Script}: $@";
+exit 1;

@@ -8,96 +8,101 @@
 
 # Generate (x)crypt.h from (x)crypt.h.in.
 
-use v5.14;  # implicit use strict, use feature ':5.14'
+use v5.14;    # implicit use strict, use feature ':5.14'
 use warnings FATAL => 'all';
 use utf8;
 use open qw(:std :utf8);
+no warnings 'experimental::smartmatch';
 no  if $] >= 5.022, warnings => 'experimental::re_strict';
-use if $] >= 5.022, re => 'strict';
+use if $] >= 5.022, re       => 'strict';
+
+use FindBin;
+use lib $FindBin::Bin;
+use BuildCommon qw(
+    enabled_set
+    parse_hashes_conf
+);
+
+# Substitutions we know about are accumulated in this hash.
+my %substs;
 
 sub process_config_h {
-    my ($substs, $config_h) = @_;
+    my ($config_h) = @_;
     open my $fh, '<', $config_h
         or die "$config_h: $!\n";
 
-    my $have_sys_cdefs_h = 0;
+    my $have_sys_cdefs_h               = 0;
     my $have_sys_cdefs_begin_end_decls = 0;
-    my $have_sys_cdefs_throw = 0;
+    my $have_sys_cdefs_throw           = 0;
     local $_;
     while (<$fh>) {
-        if (/^#define HAVE_SYS_CDEFS_H 1$/) {
-            $have_sys_cdefs_h = 1;
-        } elsif (/^#define HAVE_SYS_CDEFS_BEGIN_END_DECLS 1$/) {
-            $have_sys_cdefs_begin_end_decls = 1;
-        } elsif (/^#define HAVE_SYS_CDEFS_THROW 1$/) {
-            $have_sys_cdefs_throw = 1;
-        } elsif (/^#define PACKAGE_VERSION "((\d+)\.(\d+)\.\d+)"$/) {
-            $substs->{XCRYPT_VERSION_STR}   = $1;
-            $substs->{XCRYPT_VERSION_MAJOR} = $2;
-            $substs->{XCRYPT_VERSION_MINOR} = $3;
+        chomp;
+        given ($_) {
+            when ('#define HAVE_SYS_CDEFS_H 1') {
+                $have_sys_cdefs_h = 1;
+            }
+            when ('#define HAVE_SYS_CDEFS_BEGIN_END_DECLS 1') {
+                $have_sys_cdefs_begin_end_decls = 1;
+            }
+            when ($_ eq '#define HAVE_SYS_CDEFS_THROW 1') {
+                $have_sys_cdefs_throw = 1;
+            }
+            when (/^#define PACKAGE_VERSION "((\d+)\.(\d+)\.\d+)"$/) {
+                $substs{XCRYPT_VERSION_STR}   = $1;
+                $substs{XCRYPT_VERSION_MAJOR} = $2;
+                $substs{XCRYPT_VERSION_MINOR} = $3;
+            }
         }
     }
 
     die "$config_h: error: inconsistent <sys/cdefs.h> settings\n"
-        if (!$have_sys_cdefs_h
-            && ($have_sys_cdefs_begin_end_decls || $have_sys_cdefs_throw));
+        if !$have_sys_cdefs_h
+        && ($have_sys_cdefs_begin_end_decls || $have_sys_cdefs_throw);
 
-    my $b = "";
-    my $e = "";
+    my $b = q{};
+    my $e = q{};
     $b .= "#include <sys/cdefs.h>\n" if $have_sys_cdefs_h;
     $b .= "#define __THROW /* nothing */\n" unless $have_sys_cdefs_throw;
     $b .= "\n";
     if ($have_sys_cdefs_begin_end_decls) {
-        $b .= "__BEGIN_DECLS";
-        $e .= "__END_DECLS";
+        $b .= '__BEGIN_DECLS';
+        $e .= '__END_DECLS';
     } else {
         $b .= "#ifdef __cplusplus\nextern \"C\" {\n#endif";
         $e .= "#ifdef __cplusplus\n} /* extern \"C\" */\n#endif";
     }
-    $substs->{BEGIN_DECLS} = $b;
-    $substs->{END_DECLS} = $e;
+    $substs{BEGIN_DECLS} = $b;
+    $substs{END_DECLS}   = $e;
+    return;
 }
 
 sub process_hashes_conf {
-    my ($substs, $hashes_conf, $hashes_enabled) = @_;
-    my %enabled;
-    for my $h (split /,/, $hashes_enabled) {
-        $enabled{$h} = 1 unless $h eq '';
-    }
+    my ($hashes_conf, $hashes_enabled) = @_;
+    my %enabled = enabled_set($hashes_enabled);
+    my $hconf   = parse_hashes_conf($hashes_conf);
 
-    open my $fh, '<', $hashes_conf
-        or die "$hashes_conf: $!\n";
     my $default_prefix_enabled = 0;
-    local $_;
-    LINE: while (<$fh>) {
-        next if /^#/;
-        chomp;
-        s/\s+$//;
-        next if /^$/;
-
-        my ($name, undef, undef, $flags) = split;
-        next unless exists $enabled{$name};
-        for my $f (split /,/, $flags) {
-            if ($f eq 'DEFAULT') {
-                $default_prefix_enabled = 1;
-                last LINE;
-            }
+    for my $e (@{$hconf->default_candidates}) {
+        if ($enabled{$e->name}) {
+            $default_prefix_enabled = 1;
+            last;
         }
     }
-    $substs->{DEFAULT_PREFIX_ENABLED} = $default_prefix_enabled;
+    $substs{DEFAULT_PREFIX_ENABLED} = $default_prefix_enabled;
+    return;
 }
 
 sub substitute {
-    my ($substs, $infile) = @_;
+    my ($infile) = @_;
     open my $fh, '<', $infile
         or die "$infile: $!\n";
     my $error = 0;
     local $_;
     my $subst1 = sub {
-        my $rep = $substs->{$_[0]};
+        my $rep = $substs{$_[0]};
         return $rep if defined $rep;
 
-        print STDERR "$infile:$.: error: no substitution for $_[0]\n";
+        print {*STDERR} "$infile:$.: error: no substitution for $_[0]\n";
         $error = 1;
         return "!$_[0]!";
     };
@@ -106,28 +111,26 @@ sub substitute {
         print;
     }
     exit 1 if $error;
+    return;
 }
 
 #
 # Main
 #
-my $ME = $0; $ME =~ s:^.+?/([^/]+)$:$1:;
 if (scalar(@ARGV) != 2 && scalar(@ARGV) != 4) {
-    print STDERR
-        "usage: $ME template config.h [hashes.conf ,hashes,enabled,]\n";
+    print {*STDERR} 'usage: '
+        . ${FindBin::Script}
+        . ' template config.h [hashes.conf ,hashes,enabled,]' . "\n";
     exit 1;
 }
-eval {
+exit 0 if eval {
     my $infile = shift @ARGV;
-    my %substs;
-
-    process_config_h(\%substs, shift @ARGV);
-    process_hashes_conf(\%substs, @ARGV) if @ARGV;
-    substitute(\%substs, $infile);
+    process_config_h(shift @ARGV);
+    process_hashes_conf(@ARGV) if @ARGV;
+    substitute($infile);
     close STDOUT or die "write error: $!\n";
+    1;
 };
-if ($@) {
-    print STDERR "$ME: $@";
-    exit 1;
-}
-exit 0;
+
+print {*STDERR} "${FindBin::Script}: $@";
+exit 1;

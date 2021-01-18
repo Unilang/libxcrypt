@@ -177,9 +177,9 @@ sub log_execution {
 # Does *not* call which(); do that yourself if you need it.
 sub popen {
     my ($mode, @args) = @_;
-    die "log_popen: inappropriate mode argument '$mode'"
+    die "popen: inappropriate mode argument '$mode'"
         unless $mode eq '-|' || $mode eq '|-';
-    die 'log_popen: no command to execute'
+    die 'popen: no command to execute'
         if scalar(@args) == 0;
 
     log_execution(@args);

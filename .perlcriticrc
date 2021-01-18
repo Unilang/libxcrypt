@@ -22,11 +22,8 @@ exclude_functions = print
 # noreturn subs from TestCommon.pm
 terminal_funcs = fail skip error invocation_error subprocess_error
 
-[ValuesAndExpressions::ProhibitMagicNumbers]
-# all of these numbers have been considered in context;
-# giving them names would not clarify the code
-allowed_values = -1 0 1 2 8 77 99 127 255 256 512
-allowed_types = Hex
+[TestingAndDebugging::ProhibitNoWarnings]
+allow = experimental::smartmatch experimental::re_strict
 
 ### Disabled policies
 
@@ -67,6 +64,6 @@ allowed_types = Hex
 [-RegularExpressions::RequireDotMatchAnything]
 [-RegularExpressions::RequireExtendedFormatting]
 [-RegularExpressions::RequireLineBoundaryMatching]
+[-ValuesAndExpressions::ProhibitMagicNumbers]
 [-ValuesAndExpressions::ProhibitNoisyQuotes]
 [-Variables::ProhibitPunctuationVars]
-

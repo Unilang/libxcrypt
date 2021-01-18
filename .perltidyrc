@@ -13,5 +13,3 @@
 --paren-tightness=2            # no spaces inside parens
 --brace-tightness=2            # no spaces inside braces
 --square-bracket-tightness=2   # no spaces inside brackets
---vertical-tightness=1
---vertical-tightness-closing=1
