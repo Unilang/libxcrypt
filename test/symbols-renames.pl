@@ -69,20 +69,22 @@ sub list_symbol_renames {
         DIR      => '.',
         TEMPLATE => 'symbols-renames-XXXXXX',
         SUFFIX   => '.c',
-        EXLOCK   => 0);
+        EXLOCK   => 0
+    );
     print {$tmp} qq{#include "crypt-port.h"\n};
 
     my $fh = popen('-|', @CPP, @CPPFLAGS, '-dD', $tmp->filename);
     local $_;
     my %symbols;
+    my $pp_define = qr{
+        ^\#define \s+
+            [a-zA-Z_][a-zA-Z0-9_(),]* \s+
+            (_crypt_[a-zA-Z0-9_]*) \b
+    }x;
     while (<$fh>) {
         chomp;
         s/\s+$//;
-        if (m{^\#define \s+
-              [a-zA-Z_][a-zA-Z0-9_(),]* \s+
-              (_crypt_[a-zA-Z0-9_]*) \b }x
-            )
-        {
+        if ($_ =~ $pp_define) {
             print {*STDERR} "| $1\n";
             $symbols{$1} = 1;
         }

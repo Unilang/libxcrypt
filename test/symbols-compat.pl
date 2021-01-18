@@ -66,17 +66,15 @@ use TestCommon qw(
 sub filter_expected_differences {
     my $symbols = shift;
     my %filtered;
+    my $formerly_linkable = qr{
+        ^ (?: crypt_gensalt_r
+            | xcrypt(?: _r)?
+            | xcrypt_gensalt(?: _r)?
+          ) @@
+    }x;
     for my $s (keys %{$symbols}) {
-        if ($s =~ m{ ^(?: crypt_gensalt_r
-                        | xcrypt(?: _r)?
-                        | xcrypt_gensalt(?: _r)?
-                      ) @@ }x
-            )
-        {
-            $s =~ s/\b@@(?=XCRYPT_2\.0)/@/;
-        }
         $s =~ s/\b@@(?=GLIBC_)/@/;
-
+        $s =~ s/\b@@(?=XCRYPT_2\.0)/@/ if $s =~ $formerly_linkable;
         $filtered{$s} = 1;
     }
     return \%filtered;

@@ -57,7 +57,8 @@ sub list_library_globals {
     # public interface.
     return get_symbols(
         find_real_library(shift, 'static'),
-        sub { $_[0] !~ /^_(?:[_A-Y]|crypt_)/ });
+        sub { $_[0] !~ /^_(?:[_A-Y]|crypt_)/ }
+    );
 }
 
 sub list_expected_globals {
