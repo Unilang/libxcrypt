@@ -16,12 +16,12 @@
 # Note: we currently don't support compatibility symbols that need
 # a different definition from the default version.
 
-use v5.14;  # implicit use strict, use feature ':5.14'
+use v5.14;    # implicit use strict, use feature ':5.14'
 use warnings FATAL => 'all';
 use utf8;
 use open qw(:std :utf8);
 no  if $] >= 5.022, warnings => 'experimental::re_strict';
-use if $] >= 5.022, re => 'strict';
+use if $] >= 5.022, re       => 'strict';
 
 use FindBin;
 use lib $FindBin::Bin;
@@ -90,7 +90,7 @@ EOT
             next;
         }
 
-        my $seq = 0;
+        my $seq  = 0;
         my $name = $sym->name;
         for my $v (@{$sym->versions}) {
             if ($seq == 0) {
@@ -101,9 +101,8 @@ EOT
                     print "  symver_default (\"$name\", $name, $v)";
                 }
             } else {
-                print
-                    "; \\\n".
-                    "  symver_compat ($seq, \"$name\", $name, $name, $v)";
+                print "; \\\n"
+                    . "  symver_compat ($seq, \"$name\", $name, $name, $v)";
             }
             $seq++;
         }
@@ -116,6 +115,7 @@ EOT
 EOT
 
     close STDOUT or die "write error: $!\n";
+    return;
 }
 
 #

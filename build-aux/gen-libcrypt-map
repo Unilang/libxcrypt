@@ -10,12 +10,12 @@
 # See libcrypt.map.in for an explanation of the format of .map.in
 # files.
 
-use v5.14;  # implicit use strict, use feature ':5.14'
+use v5.14;    # implicit use strict, use feature ':5.14'
 use warnings FATAL => 'all';
 use utf8;
 use open qw(:std :utf8);
 no  if $] >= 5.022, warnings => 'experimental::re_strict';
-use if $] >= 5.022, re => 'strict';
+use if $] >= 5.022, re       => 'strict';
 
 use FindBin;
 use lib $FindBin::Bin;
@@ -52,6 +52,7 @@ sub output {
         $vp = $v;
     }
     close STDOUT or die "write error: $!\n";
+    return;
 }
 
 #

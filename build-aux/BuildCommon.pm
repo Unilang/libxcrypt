@@ -283,9 +283,10 @@ sub parse_symver_args {
 # directive, which must therefore list both all of the versions
 # actually used for symbols, and all of the versions that might be
 # used as SYMVER_MIN or SYMVER_FLOOR.
+## no critic (Subroutines::RequireArgUnpacking)
 sub parse_version_map_in {
-    my ($map_in, $SYMVER_MIN, $SYMVER_FLOOR, $COMPAT_ABI)
-        = parse_symver_args(@_);
+    my ($map_in, $SYMVER_MIN, $SYMVER_FLOOR, $COMPAT_ABI) =
+        parse_symver_args(@_);
 
     my %symbols;
     my %vorder;
@@ -303,7 +304,7 @@ sub parse_version_map_in {
         next if $_ eq q{};
 
         my @vers = split;
-        my $sym = shift @vers;
+        my $sym  = shift @vers;
         if ($sym eq '%chain') {
             for my $v (@vers) {
                 if (exists $vorder{$v}) {
@@ -358,20 +359,20 @@ sub parse_version_map_in {
             push @enabled_vers, $v if $enabled;
         }
         $symbols{$sym} = VersionedSymbol->new(
-            name => $sym,
-            included => 1,
+            name        => $sym,
+            included    => 1,
             compat_only => $compat_only,
-            versions => \@enabled_vers,
+            versions    => \@enabled_vers,
         );
     }
 
     my $symver_min_idx;
     my $symver_floor_idx;
     if (!%vorder) {
-        print STDERR "$map_in: error: missing %chain directive\n";
+        print {*STDERR} "$map_in: error: missing %chain directive\n";
         $error = 1;
     } else {
-        $symver_min_idx = $vorder{$SYMVER_MIN} // -2;
+        $symver_min_idx   = $vorder{$SYMVER_MIN}   // -2;
         $symver_floor_idx = $vorder{$SYMVER_FLOOR} // -1;
         if ($symver_min_idx < 0) {
             print {*STDERR}
@@ -415,10 +416,10 @@ sub parse_version_map_in {
                 next;
             } elsif ($vorder{$v} < $symver_floor_idx) {
                 $pruned_versions{$SYMVER_FLOOR} = 1;
-                $used_versions{$SYMVER_FLOOR} = 1;
+                $used_versions{$SYMVER_FLOOR}   = 1;
             } else {
                 $pruned_versions{$v} = 1;
-                $used_versions{$v} = 1;
+                $used_versions{$v}   = 1;
             }
         }
         if (%pruned_versions) {
@@ -442,5 +443,6 @@ sub parse_version_map_in {
         max_symlen => $max_symlen
     );
 }
+## use critic
 
 1;
