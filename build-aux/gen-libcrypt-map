@@ -1,12 +1,14 @@
 #! /usr/bin/perl
-# Written by Zack Weinberg <zackw at panix.com> in 2017.
+# Written by Zack Weinberg <zackw at panix.com> in 2017 and 2021.
 # To the extent possible under law, Zack Weinberg has waived all
 # copyright and related or neighboring rights to this work.
 #
 # See https://creativecommons.org/publicdomain/zero/1.0/ for further
 # details.
 
-# Generate a version map file from a .map.in file.
+# Generate an ELF-style "symbol version script" from a .map.in file.
+# See libcrypt.map.in for an explanation of the format of .map.in
+# files.
 
 use v5.14;  # implicit use strict, use feature ':5.14'
 use warnings FATAL => 'all';
@@ -15,204 +17,39 @@ use open qw(:std :utf8);
 no  if $] >= 5.022, warnings => 'experimental::re_strict';
 use if $] >= 5.022, re => 'strict';
 
-# On the command line, we expect to see the name of the .map.in
-# file plus the settings for the variables SYMVER_MIN, SYMVER_FLOOR,
-# and COMPAT_ABI, in any order.
-#
-# All compat symbol versions that do not match COMPAT_ABI are ignored.
-# All symbol versions lower than SYMVER_MIN are discarded from the output.
-# All symbol versions lower than SYMVER_FLOOR are replaced with SYMVER_FLOOR.
-# SYMVER_FLOOR must be greater than or equal to SYMVER_MIN.
-#
-# The ordering of symbol versions is entirely controlled by the %chain
-# directive, which must therefore list both all of the versions
-# actually used for symbols, and all of the versions that might be
-# used as SYMVER_MIN or SYMVER_FLOOR.
-#
-# Note: if you change the format of .map.in files you probably need to
-# update gen-crypt-symbol-vers-h too.
-
-sub parse_args {
-    my $me = shift;
-    my $map_in;
-    my $SYMVER_MIN;
-    my $SYMVER_FLOOR;
-    my $COMPAT_ABI;
-
-    local $_;
-    local *usage_error = sub {
-        print STDERR
-            "$me: usage: SYMVER_MIN=value SYMVER_FLOOR=value ".
-            "COMPAT_ABI=value libcrypt.map.in\n";
-        exit 1;
-    };
-
-    usage_error() if scalar(@_) != 4;
-
-    for (@_) {
-        if (/^SYMVER_MIN=(.+)$/) {
-            usage_error() if defined $SYMVER_MIN;
-            $SYMVER_MIN = $1;
-            next;
-        }
-        if (/^SYMVER_FLOOR=(.+)$/) {
-            usage_error() if defined $SYMVER_FLOOR;
-            $SYMVER_FLOOR = $1;
-            next;
-        }
-        if (/^COMPAT_ABI=(.+)$/) {
-            usage_error() if defined $COMPAT_ABI;
-            $COMPAT_ABI = $1;
-            next;
-        }
-        usage_error() if defined $map_in;
-        $map_in = $_;
-    }
-    return $map_in, $SYMVER_MIN, $SYMVER_FLOOR, $COMPAT_ABI;
-}
-
-sub process_map_in {
-    my ($map_in, $SYMVER_MIN, $SYMVER_FLOOR, $COMPAT_ABI) = @_;
-    local $_;
-
-    my %symbols;
-    my @vchain;
-    my $symver_min_idx;
-    my $symver_floor_idx;
-    my $error;
-    open my $fh, '<', $map_in
-        or die "$map_in: $!\n";
-
-    while (<$fh>) {
-        next if /^#/;
-        chomp;
-        s/\s+$//;
-        next if /^$/;
-
-        my @vers = split;
-        my $sym = shift @vers;
-        if ($sym eq '%chain') {
-            for my $v (@vers) {
-                if (grep { $_ eq $v } @vchain) {
-                    print STDERR
-                        "$map_in:$.: error: '$v' used twice in %chain\n";
-                    $error = 1;
-                    next;
-                }
-                push @vchain, $v;
-            }
-            next;
-        }
-
-        # Dash in the second field means there is no default version
-        # for this symbol.  That's handled in gen-crypt-symbols-h, we
-        # can just ignore it.
-        shift @vers if $vers[0] eq '-';
-
-        for my $v (@vers) {
-            # Each $v is a symbol version name followed by zero
-            # or more compatibility tags, separated by colons.
-            # If there are no tags, the symbol version is available
-            # unconditionally; if there are any tags, the symbol
-            # version is available if COMPAT_ABI is equal to 'yes'
-            # or equal to one of the tags.
-            my @tags = split /:/, $v;
-            $v = shift @tags;
-            if (@tags && $COMPAT_ABI ne 'yes') {
-                my $enabled = 0;
-                for my $t (@tags) {
-                    if ($t eq $COMPAT_ABI) {
-                        $enabled = 1;
-                        last;
-                    }
-                }
-                next unless $enabled;
-            }
-            $symbols{$v} = []
-                unless exists $symbols{$v};
-            push @{$symbols{$v}}, $sym;
-        }
-    }
-
-    if (!@vchain) {
-        print STDERR "$map_in: error: missing %chain directive\n";
-        $error = 1;
-    }
-    for (0 .. $#vchain) {
-        if ($vchain[$_] eq $SYMVER_MIN) {
-            $symver_min_idx = $_;
-        }
-        if ($vchain[$_] eq $SYMVER_FLOOR) {
-            $symver_floor_idx = $_;
-        }
-        last if defined $symver_min_idx && defined $symver_floor_idx;
-    }
-    if (!defined $symver_min_idx) {
-        print STDERR "$map_in: error: SYMVER_MIN ($SYMVER_MIN) ".
-            'not found in %chain directives';
-        $error = 1;
-        $symver_min_idx = -2;
-    }
-    if (!defined $symver_floor_idx) {
-        print STDERR "$map_in: error: SYMVER_FLOOR ($SYMVER_FLOOR) ".
-            'not found in %chain directives';
-        $error = 1;
-        $symver_floor_idx = -1;
-    }
-    if ($symver_floor_idx < $symver_min_idx) {
-        print STDERR "$map_in: error: SYMVER_FLOOR ($SYMVER_FLOOR) ".
-            "is lower than SYMVER_MIN ($SYMVER_MIN)";
-        $error = 1;
-    }
-    exit 1 if $error;
-    return \%symbols, \@vchain, $symver_min_idx, $symver_floor_idx;
-}
-
-# Construct a pruned set of symbols and versions, including only
-# versions with symbols, discarding all symbols associated with
-# versions below $SYMVER_MIN, raising symbols below $SYMVER_FLOOR to
-# $SYMVER_FLOOR, and removing duplicates.
-sub prune_symbol_versions {
-    my ($symbols, $vchain, $symver_min_idx, $symver_floor_idx) = @_;
-
-    my %symset;
-    my %allsymset;
-    for my $i ($symver_min_idx .. $#{$vchain}) {
-        my $syms = $symbols->{$vchain->[$i]};
-        next unless defined $syms;
-
-        my $vr = $vchain->[$i > $symver_floor_idx ? $i : $symver_floor_idx];
-        for my $s (@$syms) {
-            $allsymset{$s} = 1;
-            $symset{"$s:$vr"} = 1;
-        }
-    }
-    my @allsyms = sort keys %allsymset;
-    return \%symset, \@allsyms;
-}
+use FindBin;
+use lib $FindBin::Bin;
+use BuildCommon qw(
+    parse_version_map_in
+);
 
 sub output {
-    my ($symset, $allsyms, $vchain, $symver_floor_idx) = @_;
+    my ($symvers) = @_;
+    my $basemap = $symvers->basemap;
+    print "/* Generated from $basemap by ${FindBin::Script}.  "
+        . "DO NOT EDIT.  */\n";
+
+    my %symbols_for_ver;
+    for my $sym (@{$symvers->symbols}) {
+        next if !$sym->included;
+        for my $v (@{$sym->versions}) {
+            push @{$symbols_for_ver{$v}}, $sym->name;
+        }
+    }
 
     my $vp;
-    my @osyms;
-    for my $v (@{$vchain}[$symver_floor_idx .. $#{$vchain}]) {
-        @osyms = ();
-        for my $sym (@{$allsyms}) {
-            push @osyms, $sym
-                if exists $symset->{"$sym:$v"};
+    for my $v (@{$symvers->versions}) {
+        next unless exists $symbols_for_ver{$v};
+        print "$v {\n  global:\n";
+        for my $s (sort @{$symbols_for_ver{$v}}) {
+            print "    $s;\n";
         }
-        if (@osyms) {
-            local $_;
-            print "$v {\n  global:\n";
-            print "    $_;\n" for (@osyms);
-            if (defined $vp) {
-                print "} $vp;\n";
-            } else {
-                print "  local:\n    *;\n};\n";
-            }
-            $vp = $v;
+        if (defined $vp) {
+            print "} $vp;\n";
+        } else {
+            print "  local:\n    *;\n};\n";
         }
+        $vp = $v;
     }
     close STDOUT or die "write error: $!\n";
 }
@@ -220,22 +57,10 @@ sub output {
 #
 # Main
 #
-my $ME = $0; $ME =~ s:^.+?/([^/]+)$:$1:;
-eval {
-    my ($map_in, $SYMVER_MIN, $SYMVER_FLOOR, $COMPAT_ABI)
-        = parse_args($ME, @ARGV);
-
-    my ($symbols, $vchain, $symver_min_idx, $symver_floor_idx)
-        = process_map_in($map_in, $SYMVER_MIN, $SYMVER_FLOOR, $COMPAT_ABI);
-
-    my ($symset, $allsyms)
-        = prune_symbol_versions($symbols, $vchain,
-                                $symver_min_idx, $symver_floor_idx);
-
-    output($symset, $allsyms, $vchain, $symver_floor_idx);
+exit 0 if eval {
+    output(parse_version_map_in(@ARGV));
+    1;
 };
-if ($@) {
-    print STDERR "$ME: $@";
-    exit 1;
-}
-exit 0;
+
+print {*STDERR} "${FindBin::Script}: $@";
+exit 1;

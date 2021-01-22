@@ -31,6 +31,7 @@ EXTRA_DIST = \
 	lib/libcrypt.map.in \
 	lib/libcrypt.minver \
 	lib/xcrypt.h.in \
+	build-aux/BuildCommon.pm \
 	build-aux/compute-symver-floor \
 	build-aux/expand-selected-hashes \
 	build-aux/gen-crypt-h \
@@ -178,7 +179,8 @@ Makefile.deps: crypt.h crypt-hashes.h crypt-symbol-vers.h xcrypt.h
 	$(AM_V_GEN)LC_ALL=C echo "# Deps" > Makefile.deps.T
 	$(AM_V_at)mv -f Makefile.deps.T Makefile.deps
 
-libcrypt.map: lib/libcrypt.map.in build-aux/gen-libcrypt-map Makefile
+libcrypt.map: lib/libcrypt.map.in build-aux/gen-libcrypt-map \
+	      build-aux/BuildCommon.pm Makefile
 	$(AM_V_GEN)LC_ALL=C $(PERL) $(srcdir)/build-aux/gen-libcrypt-map \
 	  SYMVER_MIN=$(SYMVER_MIN) \
 	  SYMVER_FLOOR=$(SYMVER_FLOOR) \
@@ -186,13 +188,15 @@ libcrypt.map: lib/libcrypt.map.in build-aux/gen-libcrypt-map Makefile
 	  $(srcdir)/lib/libcrypt.map.in > libcrypt.map.T
 	$(AM_V_at)mv -f libcrypt.map.T libcrypt.map
 
-crypt-hashes.h: build-aux/gen-crypt-hashes-h lib/hashes.conf Makefile
+crypt-hashes.h: build-aux/gen-crypt-hashes-h build-aux/BuildCommon.pm \
+	        lib/hashes.conf Makefile
 	$(AM_V_GEN)LC_ALL=C $(PERL) \
 	  $(srcdir)/build-aux/gen-crypt-hashes-h \
 	  $(srcdir)/lib/hashes.conf $(hashes_enabled) > crypt-hashes.h.T
 	$(AM_V_at)mv -f crypt-hashes.h.T crypt-hashes.h
 
 crypt-symbol-vers.h: build-aux/gen-crypt-symbol-vers-h \
+		     build-aux/BuildCommon.pm \
 		     lib/libcrypt.map.in Makefile
 	$(AM_V_GEN)LC_ALL=C $(PERL) \
 	  $(srcdir)/build-aux/gen-crypt-symbol-vers-h \
@@ -202,8 +206,8 @@ crypt-symbol-vers.h: build-aux/gen-crypt-symbol-vers-h \
 	     $(srcdir)/lib/libcrypt.map.in > crypt-symbol-vers.h.T
 	$(AM_V_at)mv -f crypt-symbol-vers.h.T crypt-symbol-vers.h
 
-crypt.h: build-aux/gen-crypt-h lib/crypt.h.in lib/hashes.conf \
-	 config.h Makefile
+crypt.h: build-aux/gen-crypt-h build-aux/BuildCommon.pm \
+	 lib/crypt.h.in lib/hashes.conf config.h Makefile
 	$(AM_V_GEN)LC_ALL=C $(PERL) \
 	  $(srcdir)/build-aux/gen-crypt-h \
 	  $(srcdir)/lib/crypt.h.in config.h \
@@ -211,7 +215,8 @@ crypt.h: build-aux/gen-crypt-h lib/crypt.h.in lib/hashes.conf \
 	  > crypt.h.T
 	$(AM_V_at)mv -f crypt.h.T crypt.h
 
-xcrypt.h: build-aux/gen-crypt-h lib/xcrypt.h.in config.h
+xcrypt.h: build-aux/gen-crypt-h build-aux/BuildCommon.pm \
+	  lib/xcrypt.h.in config.h
 	$(AM_V_GEN)LC_ALL=C $(PERL) \
 	  $(srcdir)/build-aux/gen-crypt-h \
 	  $(srcdir)/lib/xcrypt.h.in config.h \
