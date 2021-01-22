@@ -12,7 +12,7 @@ use v5.14;    # implicit use strict, use feature ':5.14'
 use warnings FATAL => 'all';
 use utf8;
 use open qw(:std :utf8);
-no warnings 'experimental::smartmatch';
+no  if $] >= 5.018, warnings => 'experimental::smartmatch';
 no  if $] >= 5.022, warnings => 'experimental::re_strict';
 use if $] >= 5.022, re       => 'strict';
 
@@ -37,6 +37,7 @@ sub process_config_h {
     local $_;
     while (<$fh>) {
         chomp;
+        # Yes, 'given $_' is really required here.
         given ($_) {
             when ('#define HAVE_SYS_CDEFS_H 1') {
                 $have_sys_cdefs_h = 1;
@@ -44,7 +45,7 @@ sub process_config_h {
             when ('#define HAVE_SYS_CDEFS_BEGIN_END_DECLS 1') {
                 $have_sys_cdefs_begin_end_decls = 1;
             }
-            when ($_ eq '#define HAVE_SYS_CDEFS_THROW 1') {
+            when ('#define HAVE_SYS_CDEFS_THROW 1') {
                 $have_sys_cdefs_throw = 1;
             }
             when (/^#define PACKAGE_VERSION "((\d+)\.(\d+)\.\d+)"$/) {

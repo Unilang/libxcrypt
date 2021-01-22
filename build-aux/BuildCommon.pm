@@ -11,7 +11,7 @@ use v5.14;    # implicit use strict, use feature ':5.14'
 use warnings FATAL => 'all';
 use utf8;
 use open qw(:utf8);
-no warnings 'experimental::smartmatch';
+no  if $] >= 5.018, warnings => 'experimental::smartmatch';
 no  if $] >= 5.022, warnings => 'experimental::re_strict';
 use if $] >= 5.022, re       => 'strict';
 
@@ -110,7 +110,7 @@ sub parse_hashes_conf {
         my ($name, $h_prefix, $nrbytes, $flags) = @fields;
         my $default_cand = 0;
         my $is_strong    = 0;
-        my @groups;
+        my @grps;
 
         if ($name eq ':') {
             $err->('method name cannot be blank');
@@ -145,7 +145,7 @@ sub parse_hashes_conf {
             } elsif ($_ eq 'DEFAULT') {
                 $default_cand = 1;
             } else {
-                push @groups, lc;
+                push @grps, lc;
                 if ($_ eq 'STRONG') {
                     $is_strong = 1;
                 }
@@ -163,8 +163,7 @@ sub parse_hashes_conf {
             nrbytes => $nrbytes
         );
         $hashes{$name} = $entry;
-        for my $g (@groups) {
-            $groups{$g} = [] unless exists $groups{$g};
+        for my $g (@grps) {
             push @{$groups{$g}}, $entry;
         }
         if ($default_cand) {

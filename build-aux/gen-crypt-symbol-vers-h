@@ -85,13 +85,13 @@ EOT
 EOT
 
     for my $sym (@{$symvers->symbols}) {
+        my $name = $sym->name;
         if (!$sym->included) {
-            print "#define SYMVER_$sym symver_nop()\n";
+            print "#define SYMVER_$name symver_nop()\n";
             next;
         }
 
-        my $seq  = 0;
-        my $name = $sym->name;
+        my $seq = 0;
         for my $v (@{$sym->versions}) {
             if ($seq == 0) {
                 print "#define SYMVER_$name \\\n";
